@@ -1,0 +1,93 @@
+---
+- hosts: all
+  vars:
+    app_user: app
+    app_home: /home/{{ app_user }}/app
+    db_name: djangodb
+    db_pass: thisisasecret
+
+  tasks:
+    - name: apt-get update
+      apt: update_cache=yes
+
+    - name: install essential packages
+      apt: pkg={{ item }} state=installed
+      with_items:
+        - python-apt
+        - aptitude
+        - python-pycurl
+        - build-essential
+        - pkg-config
+        - libcairo2-dev
+        - libjpeg-dev
+        - git
+        - python-virtualenv
+        - python-pip
+        - python-dev
+
+    - name: add nginx repository key
+      apt_key: url=http://nginx.org/keys/nginx_signing.key state=present
+
+    - name: add stable nginx repository
+      apt_repository: repo='deb http://nginx.org/packages/ubuntu/ trusty nginx' state=present
+
+    - name: install nginx
+      apt: pkg=nginx state=installed
+
+    - name: set up nginx
+      template: src=nginx.conf dest=/etc/nginx/conf.d/default.conf
+      notify: restart nginx
+      tags:
+        - config
+
+    - name: install postgresql
+      apt: pkg={{ item }} state=installed
+      with_items:
+        - postgresql
+        - libpq-dev
+        - python-psycopg2
+
+    - name: set up postgresql authentication (pg_hba.conf)
+      copy: src=pg_hba.conf dest=/etc/postgresql/9.3/main/pg_hba.conf
+      notify: restart postgresql
+
+    - name: set up postgresql authentication (pg_ident.conf)
+      template: src=pg_ident.conf dest=/etc/postgresql/9.3/main/pg_ident.conf
+      notify: restart postgresql
+
+    - name: restart postgresql after auth setup
+      service: name=postgresql state=restarted
+
+    - name: set up postgresql database
+      postgresql_db: db={{ db_name }} encoding='UTF-8' lc_ctype='en_US.UTF-8' lc_collate='en_US.UTF-8' template='template0'
+
+    - name: create postgresql user
+      postgresql_user: user={{ app_user }} db={{ db_name }} password={{ db_pass }} priv=ALL role_attr_flags=CREATEDB
+
+    - name: install memcached
+      apt: pkg=memcached state=installed
+
+    - name: set up python virtual environment
+      sudo_user: "{{ app_user }}"
+      pip: requirements={{ app_home }}/requirements.txt virtualenv=/home/{{ app_user }}/.virtualenv
+
+    - name: make the initial build
+      shell: . /home/{{ app_user }}/.virtualenv/bin/activate && make update
+      args:
+        chdir: "{{ app_home }}"
+      sudo: yes
+      sudo_user: "{{ app_user }}"
+
+    - name: set up django app
+      template: src=upstart.conf dest=/etc/init/app.conf
+      notify: restart django app
+
+  handlers:
+    - name: restart nginx
+      service: name=nginx state=restarted
+
+    - name: restart postgresql
+      service: name=postgresql state=restarted
+
+    - name: restart django app
+      service: name=app state=restarted

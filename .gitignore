@@ -1,0 +1,10 @@
+*.pyc
+/*/settings/local.py
+/static/
+/media/
+/dev.db
+/.coverage
+/htmlcov/
+/.vagrant/
+/.env
+/*.sublime-*
